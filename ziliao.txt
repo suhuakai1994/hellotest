@@ -1,0 +1,73 @@
+基于接口仓库和动态接口调用的Corba接口测试方案
+1	背景
+1.1	背景
+U2020-M云化平滑演进的一个重要方案就是双总线机制，对于前端而言，新业务基于Web化开发，存量的特性模块保留原有的JavaUI，采用WebSwing技术实现统一的Portal展示，后端服务上，当前云化的PaaS平台服务间交互是通过RESTFul总线，新增的微服务提供RESTFul接口以及通过RESTFul总线和平台或其他服务交互，原有的服务还是基于Corba协议，通过适配平台，提供Corba接口通过Corba总线和其他服务交互。在U2020-M平滑演进过程中，会存在大量的Corba服务。
+ 
+U2020-M云化服务双总线平滑演进架构示意图
+对测试而言，当前RESTFul服务接口测试能力已经具备，基于APITest，通过服务接口定义文件，导入到APITest后可方便快速的自动生成接口AW，再通过可视化编排即可生成用例，上手门槛低，开发效率高。而对于Corba服务来说，只具备基于gtest框架通过MST方式使用C++代码开发用例测试Corba接口的方法，这样用例开发方式上手难度高、调测用例难、开发效率低，之前一个没有基础的业务测试需要2月多的时间才能具备MST的能力。
+ 
+2	思路分析
+2.1	Corba调用分析
+Corba是一种典型的RPC的实现，服务使用方(Client)和提供方(Server)通过Corba接口交互，接口由Idl文件定义。常见的Croba接口调用通过Idl文件中定义的接口通过编译生成Stub和Skeleton。Stub的主要作用是用作服务使用方的代理，服务使用方通过使用Stub对于调用远程的服务对象就像调用自己本地对象一样方便，具体与服务端的通信由Stub调用Corba的底层组件实现。Skeleton的主要作用是接收服务使用方(Stub)发来的请求最终交由实现服务的对象完成。对于服务使用方来说会保存一个服务提供方对象的“对象引用”，通过使用“对象引用”来请求“对象方法”， Stub通过ORB来确定运行对象的服务端的机器，并请求该机器的ORB连接到对象的服务端去。Stub同ORB建立连接后，向该机的Skeleton发送“对象引用”及相关参数，再由Skeleton功能连接到目标对象的“对象实现”上。Skeleton将请求和参数转换成规定格式然后调用该对象。最后，“对象实现”的结果沿着来的路径传送回客户请求端。
+具体示意图如下：
+ 
+RPC示意图
+ 
+Corba调用示意图
+2.2	Dynamic Invocation Interface & Interface Repository
+常见的Corba调用方式都是通过IDL接口编译生成Stub和Skeleton库调用实现，该方式称为Corba的静态调用方式，CORBA规范还提供了Dynamic Invocation Interface (DII)和Interface Repository (IFR)的机制，可以通过预先导入要调用服务接口的IDL到Interface Repository，后续可通过查询的方式获取到接口的具体定义，再通过动态调用(DII)就可以实现通用的CORBA接口调用。
+DII调用示例
+ 
+可以看到只要知道当前Corba接口类型信息，如接口名称、参数个数、以及类型，就可以进行Corba接口的调用，换而言之，通过Corba的DII机制，具体的调用信息通过外部数据提供，可以实现一个通过Corba接口调用机制，这个正好可以解决原有的MST的Corba接口测试方式需要开发C++代码、编译IDL、调试等对于测试人员效率低且难度高的问题，有了通用的Corba调用机制，测试人员就可以专注于接口测试逻辑，而不需要关注具体的调用、执行细节，但DII机制问题在于接口的类型信息如何获取，而Interface Repository机制可以通过将IDL导入到IFR服务，通过API进行查询，只需要知道类型ID，如IDL:PerformanceManagement/ITF_PMMeasureManager/getMeasurementCounterInfo:1.0，则可以获取到接口的名称、参数个数、参数类型、返回值类型等，示例如下：
+ 
+而接口的类型ID则可以通过Naming获取到的Corba对象引用获取得到，示例如下：
+ 
+2.3	实现方案
+ 
+3	实现过程
+3.1	搭建Interface Repository
+搭建Interface Repository服务，通过脚本导入IDL文件到接口仓库服务。
+3.2	实现corba-idl-yaml
+对于被测的Corba对象，通过Naming获取Corba对象引用，查询Corba对象下所有接口，结合IFR获取接口类型信息，生成Corba对象yaml定义文件。
+3.3	导入corba-idl-yaml进APITest
+导入corba-idl-yaml进APITest，生成Cobra调用AW，可视化编排生成用例。
+3.4	实现corba-diiwrapper-service
+接收Cobra调用AW的调用请求，通过DII调用被测Corba服务。
+4	效果
+Before
+ 
+
+
+
+After
+
+
+
+1. 降低了Corba接口测试难度，原有的MST测试Corba方式，测试人员需要2月左右掌握开发，现在2天熟悉工具和概念后即可上手；
+2. 由原有的MST的代码开发的方式转换为界面化开发，测试人员可更专注用例逻辑，而不需要关注开发语言、环境搭建、编译等问题
+5	参考
+Dynamic CORBA
+http://www.drdobbs.com/dynamic-corba-part-1-the-dynamic-invocat/184403833
+http://www.drdobbs.com/object-interconnections-dynamic-corba-pa/184403840
+http://www.drdobbs.com/object-interconnections-dynamic-corba-pa/184403847
+http://www.drdobbs.com/dynamic-corba-part-4-the-interface-repos/184403854
+
+附：
+环境：
+【新告警】R19B验证环境，1600等效，虚拟化，英文：
+10.160.22.192 OSSSVRM Master
+10.160.22.194 OSSSVR01 Slave
+10.160.22.196 OSSCME01 CMEMaster
+10.160.22.193 OSSDB DBMaster
+10.160.22.195 OSSDB01 DBSlave
+10.160.22.197 CMEDB01 CMEDBMaster
+管理面登录<admin/Huawei_123>: https://10.160.22.191:31945
+应用面登录<admin/Huawei_123>: https://10.160.22.192:31943
+1.	在/export/home目录下新建一个apitest目录，专门用于接口测试用。将OpenORB-1.4.0、corba-execute-service包拷贝到apitest下；
+2.	在apitest目录下新建idlfiles目录用于存放idl文件，从U2020货架下载需要测试的idl文件
+3.	启动IR，执行/export/home/apitest/OpenORB-1.4.0/InterfaceRepository/bin目录下的ir脚本：nohup ./ir -ORBPort 4320 > ifr432:q:0.trace 2>&1 &
+4.	仿idl2ir_00_cm编写idl导入脚本，使用IDL2IR工具将CORBA接口导入接口仓库：./idl2ir_00_cm -ORBInitRef InterfaceRepository=corbaloc::1.2@10.160.22.192:4320/InterfaceRepository
+5.	新建/export/home/apitest/idl2yaml目录，将corba-idl-yaml打jar包，并将corba-idl-yaml-1.0-SNAPSHOT.jar和dependencis包拷贝到改目录下，然后idl转换成yaml，执行如下脚本：java -Xbootclasspath/p:/export/home/apitest/OpenORB-1.4.0/OpenORB/lib/endorsed/openorb_orb_omg-1.4.0.jar -Dopenorb.home.path=/export/home/apitest/OpenORB-1.4.0/ -Dimap.sslCertificatesPath=/export/home/apitest/OpenORB-1.4.0/conf/ssl -Du2020.env=10.160.22.192 -Dinterfacerep.env=10.160.22.192:4320 -Dcorbaobject.naming=M2000/CMEngine/MitSynch -jar corba-idl-yaml-1.0-SNAPSHOT.jar
+6.	生成的yaml文件在/export/home/apitest/idl2yaml/outputs，导入APITest生成AW
+7.	到/export/home/apitest/corba-execute-service目录下，启动corba_execute脚本，执行：
+. start_corba_execute.sh
